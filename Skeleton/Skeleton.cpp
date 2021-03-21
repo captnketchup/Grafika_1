@@ -76,6 +76,7 @@ vec3 getDivider(vec3 a, vec3 b, float ratio);
 vec3 getMirrorOnPoint(vec3 p, vec3 on);
 void printVec3(vec3 in);
 float calcW(float x, float y);
+vec3 calcHyperbolicCoord(float x, float y);
 
 // Initialization, create an OpenGL context
 void onInitialization() {
@@ -99,18 +100,18 @@ void onInitialization() {
 		verticesCoordinates[j] = randX;
 		verticesCoordinates[j + 1] = randY;
 		j += 2;
-		vertices[i + 0] = randX - SIDELENGTH / 2;			// first corner of square
-		vertices[i + 1] = randY - SIDELENGTH / 2;
-		vertices[i + 2] = randX - SIDELENGTH / 2;
-		vertices[i + 3] = randY + SIDELENGTH / 2;
-		vertices[i + 4] = randX + SIDELENGTH / 2;
-		vertices[i + 5] = randY - SIDELENGTH / 2;
-
-
-		vertices[i + 6] = randX - SIDELENGTH / 2;		// second triangle coordinates
-		vertices[i + 7] = randY + SIDELENGTH / 2;
-		vertices[i + 8] = randX + SIDELENGTH / 2;
-		vertices[i + 9] = randY - SIDELENGTH / 2;
+		vertices[i + 0 ] = randX - SIDELENGTH / 2;			// first corner of square
+		vertices[i + 1 ] = randY - SIDELENGTH / 2;
+		vertices[i + 2 ] = randX - SIDELENGTH / 2;
+		vertices[i + 3 ] = randY + SIDELENGTH / 2;
+		vertices[i + 4 ] = randX + SIDELENGTH / 2;
+		vertices[i + 5 ] = randY - SIDELENGTH / 2;
+					   
+					   
+		vertices[i + 6 ] = randX - SIDELENGTH / 2;		// second triangle coordinates
+		vertices[i + 7 ] = randY + SIDELENGTH / 2;
+		vertices[i + 8 ] = randX + SIDELENGTH / 2;
+		vertices[i + 9 ] = randY - SIDELENGTH / 2;
 		vertices[i + 10] = randX + SIDELENGTH / 2;
 		vertices[i + 11] = randY + SIDELENGTH / 2;
 	}
@@ -138,30 +139,24 @@ void onInitialization() {
 // Window has become invalid: Redraw
 void onDisplay() {
 	//	in case of motion
-	for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 2)		//generating graphpoints
-	{
-		//vec3 a = {0.1f, 0.0f, 1.0f};
-		//vec3 b = (mouseX, mouseY, (mouseX * mouseX + mouseY * mouseY + 1));
-		//vec3 b = { 0.0f, 0.0f, 1.0f };
-		//vec3 m1 = getDivider(a, b, 0.25f);
-		//printf("\n\nm1\n");
-		//printVec3(m1);
-		//printf("\n");
-		//vec3 m2 = getDivider(a, b, 0.75f);
-		//printVec3(m2);
+	if (mouseXNext != mouseXPrev || mouseYNext != mouseYPrev) {		// as to not get zero division		todo: check if on hyperbolic plane
 
-		//vec3 m1 = { 0.0f, 0.0f, 1.0f };
-		//vec3 m2 = { 0.0f, 0.0f, 1.0f };
-
-		vec3 m1 = { mouseXPrev, mouseYPrev, calcW(mouseXPrev, mouseYPrev) };
-		vec3 m2 = { mouseXNext, mouseYNext, calcW(mouseXNext, mouseYNext) };
-		vec3 temp = { vertices[i + 0], vertices[i + 1], calcW(vertices[i + 0], vertices[i + 1]) };
-		printVec3(temp);
-		temp = getMirrorOnPoint(temp, m1);
-		temp = getMirrorOnPoint(temp, m2);
-		//printVec3(temp);
-		vertices[i + 0] = temp.x;			// X coordinate of said point
-		vertices[i + 1] = temp.y;			// Y coordinate of said point
+		vec3 a = calcHyperbolicCoord(mouseXPrev, mouseYPrev);
+		printVec3(a);
+		vec3 b = calcHyperbolicCoord(mouseXNext, mouseYNext);
+		printVec3(b);
+		vec3 m1 = getDivider(a, b, 0.25f);
+		vec3 m2 = getDivider(a, b, 0.75f);
+		for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 2)		//generating graphpoints
+		{
+			vec3 temp = { vertices[i + 0], vertices[i + 1], calcW(vertices[i + 0], vertices[i + 1]) };
+			//printVec3(temp);
+			temp = getMirrorOnPoint(temp, m1);
+			temp = getMirrorOnPoint(temp, m2);
+			//printVec3(temp);
+			vertices[i + 0] = temp.x;			// X coordinate of said point
+			vertices[i + 1] = temp.y;			// Y coordinate of said point
+		}
 	}
 
 
@@ -212,6 +207,7 @@ void onMouseMotion(int pX, int pY) {	// pX, pY are the pixel coordinates of the 
 	mouseYPrev = mouseYNext;
 	mouseXNext = cX;
 	mouseYNext = cY;
+	onDisplay();
 	printf("Mouse moved to (%3.2f, %3.2f)\n", cX, cY);
 }
 
@@ -242,11 +238,11 @@ void onIdle() {
 
 // Gets distance between 2 vec3 vectors
 float vec3Distance(vec3 p, vec3 q) {
-	printf("TAVOLSAG\n");
-	printVec3(q);
-	printVec3(p);
-	printf("TAVOLSAGvege\n");
-	printf("%3.5f", -(p.x * q.x + p.y * q.y - p.z * q.z));
+	//printf("TAVOLSAG\n");
+	//printVec3(q);
+	//printVec3(p);
+	//printf("TAVOLSAGvege\n");
+	//printf("%3.5f", -(p.x * q.x + p.y * q.y - p.z * q.z));
 	return acosh(-(p.x * q.x + p.y * q.y - p.z * q.z));
 }
 
@@ -263,7 +259,7 @@ vec3 dirVecFrom2Points(vec3 p, vec3 q, float d_pq) {
 // Gets Mn from a->b line equation
 vec3 getDivider(vec3 a, vec3 b, float ratio) {
 	float d_ab = vec3Distance(a, b);
-	printf("d_ab = %3.5f\n", d_ab);
+	//printf("d_ab = %3.5f\n", d_ab);
 	vec3 v = dirVecFrom2Points(a, b, d_ab);
 	return (pointFromVDir(a, v, ratio * d_ab));
 }
@@ -299,6 +295,7 @@ vec3 getMirrorOnPoint(vec3 p, vec3 on) {
 //	return v2;
 //}
 
+// prints a vec3 to console
 void printVec3(vec3 in) {
 	printf("X: %3.2f Y:%3.2f W:%3.2f\n", in.x, in.y, in.z);
 }
@@ -306,4 +303,8 @@ void printVec3(vec3 in) {
 // calculates w from given X and Y coordinates
 float calcW(float x, float y) {
 	return (sqrtf(x * x + y * y + 1));
+}
+
+vec3 calcHyperbolicCoord(float x, float y) {
+	return  vec3(x, y, 1) / sqrtf(1 - x * x - y * y);
 }
