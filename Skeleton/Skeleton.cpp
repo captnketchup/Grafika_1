@@ -62,7 +62,20 @@ const char * const fragmentSource = R"(
 
 GPUProgram gpuProgram; // vertex and fragment shaders
 unsigned int vao;	   // virtual world on the GPU
-const int GRAPHPOINTS = 50;	//numof graph points
+const int GRAPHPOINTS = 50;	// numof graph points
+float verticesCoordinates[GRAPHPOINTS*2] = {0};		// array of coordinates
+float mouseXPrev;
+float mouseYPrev;
+float mouseXNext;
+float mouseYNext;
+float vertices[GRAPHPOINTS*3*2*2];		// because we're building squares, which is two triangles  (triangles*2 points for coordinates*two triangles)
+unsigned int vbo;		// vertex buffer object
+
+vec3 mouseMoves(float pX, float pY, float coordX, float coordY);
+vec3 getDivider(vec3 a, vec3 b, float ratio);
+vec3 getMirrorOnPoint(vec3 p, vec3 on);
+void printVec3(vec3 in);
+float calcW(float x, float y);
 
 // Initialization, create an OpenGL context
 void onInitialization() {
@@ -71,19 +84,22 @@ void onInitialization() {
 	glGenVertexArrays(1, &vao);	// get 1 vao id
 	glBindVertexArray(vao);		// make it active
 
-	unsigned int vbo;		// vertex buffer object
 	glGenBuffers(1, &vbo);	// Generate 1 buffer
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
 	
 	const float SIDELENGTH = 0.1;
 	//float vertices[] = { -0.8f, -0.8f, -0.6f, 1.0f, 0.8f, -0.2f };
-	float vertices[GRAPHPOINTS*3*2*2];		// because we're building squares, which is two triangles  (triangles*2 points for coordinates*two triangles)
+
+	int j = 0;
 	for (int i = 0; i < GRAPHPOINTS*3*2*2; i+=12)		//generating graphpoints
 	{
-		float randX = (rand() % 100 - 50) / 10.0;		// random num between 0-99
+		float randX = (rand() % 100 - 50) / 10.0;		// random num between 
 		float randY = (rand() % 100 - 50) / 10.0;
-		vertices[i + 0 ] = randX - SIDELENGTH / 2;			//first corner of square
+		verticesCoordinates[j] = randX;
+		verticesCoordinates[j+1] = randY;
+		j+=2;
+		vertices[i + 0 ] = randX - SIDELENGTH / 2;			// first corner of square
 		vertices[i + 1 ] = randY - SIDELENGTH / 2;		
 		vertices[i + 2 ] = randX - SIDELENGTH / 2;
 		vertices[i + 3 ] = randY + SIDELENGTH / 2;
@@ -98,6 +114,13 @@ void onInitialization() {
 		vertices[i + 10] = randX + SIDELENGTH / 2;
 		vertices[i + 11] = randY + SIDELENGTH / 2;
 	}
+
+	for (int i = 0; i < GRAPHPOINTS*2; i++)
+	{
+		printf("X:%3.2f Y:%3.2f\n", verticesCoordinates[i], verticesCoordinates[i + 1]);
+	}
+
+
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
 		sizeof(vertices),  // # bytes
 		vertices,	      	// address
@@ -114,6 +137,37 @@ void onInitialization() {
 
 // Window has become invalid: Redraw
 void onDisplay() {
+	//	in case of motion
+	for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 2)		//generating graphpoints
+	{
+		//vec3 a = {0.1f, 0.0f, 1.0f};
+		//vec3 b = (mouseX, mouseY, (mouseX * mouseX + mouseY * mouseY + 1));
+		//vec3 b = { 0.0f, 0.0f, 1.0f };
+		//vec3 m1 = getDivider(a, b, 0.25f);
+		//printf("\n\nm1\n");
+		//printVec3(m1);
+		//printf("\n");
+		//vec3 m2 = getDivider(a, b, 0.75f);
+		//printVec3(m2);
+		vec3 m1 = { 0.0f, 0.0f, 1.0f };
+		vec3 m2 = { 0.0f, 0.0f, 1.0f };
+		vec3 temp = { vertices[i + 0], vertices[i + 1], calcW(vertices[i + 0], vertices[i+1]) };
+		printVec3(temp);
+		temp = getMirrorOnPoint(temp, m1);
+		temp = getMirrorOnPoint(temp, m2);
+		//printVec3(temp);
+		vertices[i + 0] = temp.x;			// X coordinate of said point
+		vertices[i + 1] = temp.y;			// Y coordinate of said point
+	}
+
+
+	//
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(vertices),  // # bytes
+		vertices,	      	// address
+		GL_STATIC_DRAW);	// we do not change later
+
 	glClearColor(0, 0, 0, 0);     // background color
 	glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
 
@@ -150,6 +204,10 @@ void onMouseMotion(int pX, int pY) {	// pX, pY are the pixel coordinates of the 
 	// Convert to normalized device space
 	float cX = 2.0f * pX / windowWidth - 1;	// flip y axis
 	float cY = 1.0f - 2.0f * pY / windowHeight;
+	mouseXPrev = mouseXNext;
+	mouseYPrev = mouseYNext;
+	mouseXNext = cX;
+	mouseYNext = cY;
 	printf("Mouse moved to (%3.2f, %3.2f)\n", cX, cY);
 }
 
@@ -177,7 +235,70 @@ void onIdle() {
 	long time = glutGet(GLUT_ELAPSED_TIME); // elapsed time since the start of the program
 }
 
-// Moves the graph
-void mouseMoves(int pX, int pY) {
 
+// Gets distance between 2 vec3 vectors
+float vec3Distance(vec3 p, vec3 q) {
+	printf("TAVOLSAG\n");
+	printVec3(q);
+	printVec3(p);
+	printf("TAVOLSAGvege\n");
+	printf("%3.5f", -(p.x * q.x + p.y * q.y - p.z * q.z));
+	return acosh(-(p.x * q.x + p.y * q.y - p.z * q.z));
+}
+
+// Gets a point from a vec3, a direction vetor and a distance
+vec3 pointFromVDir(vec3 p, vec3 v, float t) {
+	return (p * cosh(t) + v * sinh(t));
+}
+
+// Gets a direction vector from 2 points and a distance
+vec3 dirVecFrom2Points(vec3 p, vec3 q, float d_pq) {
+	return ( (q - p * cosh(d_pq)) / (sinh(d_pq)) );
+}
+
+// Gets Mn from a->b line equation
+vec3 getDivider(vec3 a, vec3 b, float ratio) {
+	float d_ab = vec3Distance(a, b);
+	printf("d_ab = %3.5f\n",d_ab);
+	vec3 v = dirVecFrom2Points(a, b, d_ab);
+	return ( pointFromVDir(a, v, ratio * d_ab) );
+}
+
+// Mirrors one time
+vec3 getMirrorOnPoint(vec3 p, vec3 on) {
+	return getDivider(p, on, 2);
+}
+
+
+// Moves the graph
+vec3 mouseMoves(float pX, float pY, float coordX, float coordY) {
+	//1,
+	vec3 q = vec3(pX, pY, sqrtf(pX * pX + pY * pY + 1.0f));
+	vec3 p = vec3(0.0f, 0.0f, 1.0f); 
+	vec3 v = vec3(coordX, coordY, sqrtf(coordX * coordX + coordY * coordY + 1.0f));
+	float d_pq = vec3Distance(p,q);
+	//2,
+	vec3 v_dir1 = dirVecFrom2Points(p, q, d_pq);
+	//3,
+	vec3 m = pointFromVDir(p, v, d_pq/2.0f);
+	//4,
+	float d_vm = vec3Distance(v, m);
+	//5,
+	vec3 v_dir2 = dirVecFrom2Points(v, m, d_vm);
+	//6,
+	vec3 v1 = pointFromVDir(v, v_dir2, 2*d_vm);
+	//7,
+	float d_v1q = vec3Distance(v1, q);
+	//8,
+	vec3 v2 = pointFromVDir(v1, q, d_v1q * 2.0f);		// the point where the graph point should go
+
+	return v2;
+}
+
+void printVec3(vec3 in) {
+	printf("X: %3.2f Y:%3.2f W:%3.2f\n", in.x, in.y, in.z);
+}
+
+float calcW(float x, float y) {
+	return (sqrtf(x * x + y * y + 1));
 }
