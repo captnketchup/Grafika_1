@@ -62,6 +62,7 @@ const char *const fragmentSource = R"(
 
 GPUProgram gpuProgram; // vertex and fragment shaders
 unsigned int vao;	   // virtual world on the GPU
+unsigned int vaoLines;		// vao for the edges between graphpoints
 const int GRAPHPOINTS = 50;	// numof graph points
 float verticesCoordinates[GRAPHPOINTS * 2] = { 0 };		// array of coordinates
 float mouseXPrev;
@@ -70,13 +71,16 @@ float mouseXNext;
 float mouseYNext;
 float vertices[GRAPHPOINTS * 3 * 2 * 2];		// because we're building squares, which is two triangles  (triangles*2 points for coordinates*two triangles)
 unsigned int vbo;		// vertex buffer object
+unsigned int vboLines;		// vbo for the edges between graphpoints
 
-vec3 mouseMoves(float pX, float pY, float coordX, float coordY);
+//vec3 mouseMoves(float pX, float pY, float coordX, float coordY);
 vec3 getDivider(vec3 a, vec3 b, float ratio);
 vec3 getMirrorOnPoint(vec3 p, vec3 on);
 void printVec3(vec3 in);
 float calcW(float x, float y);
 vec3 calcHyperbolicCoord(float x, float y);
+vec3 calcVec3withW(float x, float y);
+vec3 pointFromVDir(vec3 p, vec3 v, float t);
 
 // Initialization, create an OpenGL context
 void onInitialization() {
@@ -89,31 +93,81 @@ void onInitialization() {
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
 
-	const float SIDELENGTH = 0.1;
+	const float SIDELENGTH = 0.05;
 	//float vertices[] = { -0.8f, -0.8f, -0.6f, 1.0f, 0.8f, -0.2f };
 
 	int j = 0;
 	for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 12)		//generating graphpoints
 	{
-		float randX = (rand() % 100 - 50) / 10.0;		// random num between 
-		float randY = (rand() % 100 - 50) / 10.0;
-		verticesCoordinates[j] = randX;
-		verticesCoordinates[j + 1] = randY;
+		float randX1 = (rand() % 100 - 50) / 100.0;
+		float randY1 = (rand() % 100 - 50) / 100.0;
+		vec3 rand1 = calcVec3withW(randX1, randY1);		// a random point on which a generated point is being mirrored
+		
+
+		float randX2 = (rand() % 100 - 50) / 100.0;
+		float randY2 = (rand() % 100 - 50) / 100.0;
+		vec3 rand2 = calcVec3withW(randX2, randY2);		// a random point on which a generated point is being mirrored
+	
+		vec3 kozep = calcVec3withW(0,0);				// new point in the middle 
+		
+		kozep = getMirrorOnPoint(kozep, rand1);			// new point being translated elsewhere (on the hypebolic plane) randomly
+		kozep = getMirrorOnPoint(kozep, rand2);	
+		verticesCoordinates[j] = kozep.x;
+		verticesCoordinates[j + 1] = kozep.y;
 		j += 2;
-		vertices[i + 0 ] = randX - SIDELENGTH / 2;			// first corner of square
-		vertices[i + 1 ] = randY - SIDELENGTH / 2;
-		vertices[i + 2 ] = randX - SIDELENGTH / 2;
-		vertices[i + 3 ] = randY + SIDELENGTH / 2;
-		vertices[i + 4 ] = randX + SIDELENGTH / 2;
-		vertices[i + 5 ] = randY - SIDELENGTH / 2;
-					   
-					   
-		vertices[i + 6 ] = randX - SIDELENGTH / 2;		// second triangle coordinates
-		vertices[i + 7 ] = randY + SIDELENGTH / 2;
-		vertices[i + 8 ] = randX + SIDELENGTH / 2;
-		vertices[i + 9 ] = randY - SIDELENGTH / 2;
-		vertices[i + 10] = randX + SIDELENGTH / 2;
-		vertices[i + 11] = randY + SIDELENGTH / 2;
+
+		// the four corners of the square (six points in total becasuse of the 2 triangles) being translated
+		vec3 egy =	 calcVec3withW(-SIDELENGTH / 2, -SIDELENGTH / 2);
+		vec3 ketto = calcVec3withW(-SIDELENGTH / 2, +SIDELENGTH / 2);
+		vec3 harom = calcVec3withW(+SIDELENGTH / 2, -SIDELENGTH / 2);
+		vec3 negy =	 calcVec3withW(+SIDELENGTH / 2, +SIDELENGTH / 2);
+		egy = getMirrorOnPoint(egy, rand1);
+		egy = getMirrorOnPoint(egy, rand2);
+		ketto = getMirrorOnPoint(ketto, rand1);
+		ketto = getMirrorOnPoint(ketto, rand2);
+		harom = getMirrorOnPoint(harom, rand1);
+		harom = getMirrorOnPoint(harom, rand2);
+		negy = getMirrorOnPoint(negy, rand1);
+		negy = getMirrorOnPoint(negy, rand2);
+
+
+
+		vertices[i + 0] = egy.x;
+		vertices[i + 1] = egy.y;
+
+		vertices[i + 2] = ketto.x;
+		vertices[i + 3] = ketto.y;
+
+		vertices[i + 4] = harom.x;
+		vertices[i + 5] = harom.y;
+
+		vertices[i + 6] =  ketto.x;
+		vertices[i + 7] =  ketto.y;
+		vertices[i + 8] =  harom.x;
+		vertices[i + 9] =  harom.y;
+		
+		vertices[i + 10] = negy.x;
+		vertices[i + 11] = negy.y;
+
+		//float randX = (rand() % 100 - 50) / 10.0;		// random num between 
+		//float randY = (rand() % 100 - 50) / 10.0;
+		//verticesCoordinates[j] = randX;
+		//verticesCoordinates[j + 1] = randY;
+		//j += 2;
+		//vertices[i + 0 ] = randX - SIDELENGTH / 2;			// first corner of square
+		//vertices[i + 1 ] = randY - SIDELENGTH / 2;
+		//vertices[i + 2 ] = randX - SIDELENGTH / 2;
+		//vertices[i + 3 ] = randY + SIDELENGTH / 2;
+		//vertices[i + 4 ] = randX + SIDELENGTH / 2;
+		//vertices[i + 5 ] = randY - SIDELENGTH / 2;
+		//			   
+		//			   
+		//vertices[i + 6 ] = randX - SIDELENGTH / 2;		// second triangle coordinates
+		//vertices[i + 7 ] = randY + SIDELENGTH / 2;
+		//vertices[i + 8 ] = randX + SIDELENGTH / 2;
+		//vertices[i + 9 ] = randY - SIDELENGTH / 2;
+		//vertices[i + 10] = randX + SIDELENGTH / 2;
+		//vertices[i + 11] = randY + SIDELENGTH / 2;
 	}
 
 	for (int i = 0; i < GRAPHPOINTS * 2; i++)
@@ -140,22 +194,23 @@ void onInitialization() {
 void onDisplay() {
 	//	in case of motion
 	if (mouseXNext != mouseXPrev || mouseYNext != mouseYPrev) {		// as to not get zero division		todo: check if on hyperbolic plane
-
-		vec3 a = calcHyperbolicCoord(mouseXPrev, mouseYPrev);
-		printVec3(a);
-		vec3 b = calcHyperbolicCoord(mouseXNext, mouseYNext);
-		printVec3(b);
-		vec3 m1 = getDivider(a, b, 0.25f);
-		vec3 m2 = getDivider(a, b, 0.75f);
-		for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 2)		//generating graphpoints
-		{
-			vec3 temp = { vertices[i + 0], vertices[i + 1], calcW(vertices[i + 0], vertices[i + 1]) };
-			//printVec3(temp);
-			temp = getMirrorOnPoint(temp, m1);
-			temp = getMirrorOnPoint(temp, m2);
-			//printVec3(temp);
-			vertices[i + 0] = temp.x;			// X coordinate of said point
-			vertices[i + 1] = temp.y;			// Y coordinate of said point
+		if (mouseXNext * mouseXNext + mouseYNext * mouseYNext < 1) {
+			vec3 a = calcHyperbolicCoord(mouseXPrev, mouseYPrev);
+			printVec3(a);
+			vec3 b = calcHyperbolicCoord(mouseXNext, mouseYNext);
+			printVec3(b);
+			vec3 m1 = getDivider(a, b, 0.25f);
+			vec3 m2 = getDivider(a, b, 0.75f);
+			for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 2)		//generating graphpoints
+			{
+				vec3 temp = { vertices[i + 0], vertices[i + 1], calcW(vertices[i + 0], vertices[i + 1]) };
+				//printVec3(temp);
+				temp = getMirrorOnPoint(temp, m1);
+				temp = getMirrorOnPoint(temp, m2);
+				//printVec3(temp);
+				vertices[i + 0] = temp.x;			// X coordinate of said point
+				vertices[i + 1] = temp.y;			// Y coordinate of said point
+			}
 		}
 	}
 
@@ -219,7 +274,7 @@ void onMouse(int button, int state, int pX, int pY) { // pX, pY are the pixel co
 
 	char *buttonStat;
 	switch (state) {
-		case GLUT_DOWN: buttonStat = "pressed"; break;
+		case GLUT_DOWN: buttonStat = "pressed"; mouseXPrev = cX; mouseYPrev = cY; mouseXNext = cX; mouseYNext = cY; break;				// Mouse state coordinates getting a default value, as to not be "choppy"
 		case GLUT_UP:   buttonStat = "released"; break;
 	}
 
@@ -243,17 +298,17 @@ float vec3Distance(vec3 p, vec3 q) {
 	//printVec3(p);
 	//printf("TAVOLSAGvege\n");
 	//printf("%3.5f", -(p.x * q.x + p.y * q.y - p.z * q.z));
-	return acosh(-(p.x * q.x + p.y * q.y - p.z * q.z));
+	return acosh(-(q.x * p.x + q.y * p.y - q.z * p.z));
 }
 
 // Gets a point from a vec3, a direction vetor and a distance
 vec3 pointFromVDir(vec3 p, vec3 v, float t) {
-	return (p * cosh(t) + v * sinh(t));
+	return p * cosh(t) + v * sinh(t);
 }
 
 // Gets a direction vector from 2 points and a distance
 vec3 dirVecFrom2Points(vec3 p, vec3 q, float d_pq) {
-	return ((q - p * cosh(d_pq)) / (sinh(d_pq)));
+	return (q - p * cosh(d_pq)) / (sinh(d_pq));
 }
 
 // Gets Mn from a->b line equation
@@ -269,32 +324,6 @@ vec3 getMirrorOnPoint(vec3 p, vec3 on) {
 	return getDivider(p, on, 2);
 }
 
-
-//// Moves the graph
-//vec3 mouseMoves(float pX, float pY, float coordX, float coordY) {
-//	//1,
-//	vec3 q = vec3(pX, pY, sqrtf(pX * pX + pY * pY + 1.0f));
-//	vec3 p = vec3(0.0f, 0.0f, 1.0f);
-//	vec3 v = vec3(coordX, coordY, sqrtf(coordX * coordX + coordY * coordY + 1.0f));
-//	float d_pq = vec3Distance(p, q);
-//	//2,
-//	vec3 v_dir1 = dirVecFrom2Points(p, q, d_pq);
-//	//3,
-//	vec3 m = pointFromVDir(p, v, d_pq / 2.0f);
-//	//4,
-//	float d_vm = vec3Distance(v, m);
-//	//5,
-//	vec3 v_dir2 = dirVecFrom2Points(v, m, d_vm);
-//	//6,
-//	vec3 v1 = pointFromVDir(v, v_dir2, 2 * d_vm);
-//	//7,
-//	float d_v1q = vec3Distance(v1, q);
-//	//8,
-//	vec3 v2 = pointFromVDir(v1, q, d_v1q * 2.0f);		// the point where the graph point should go
-//
-//	return v2;
-//}
-
 // prints a vec3 to console
 void printVec3(vec3 in) {
 	printf("X: %3.2f Y:%3.2f W:%3.2f\n", in.x, in.y, in.z);
@@ -307,4 +336,8 @@ float calcW(float x, float y) {
 
 vec3 calcHyperbolicCoord(float x, float y) {
 	return  vec3(x, y, 1) / sqrtf(1 - x * x - y * y);
+}
+
+vec3 calcVec3withW(float x, float y) {
+	return vec3(x, y, calcW(x, y));
 }
