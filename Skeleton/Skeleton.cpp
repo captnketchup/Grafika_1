@@ -1,5 +1,5 @@
 //=============================================================================================
-// Mintaprogram: Zöld háromszög. Ervenyes 2019. osztol.
+// Mintaprogram: Zold haromszog. Ervenyes 2019. osztol.
 //
 // A beadott program csak ebben a fajlban lehet, a fajl 1 byte-os ASCII karaktereket tartalmazhat, BOM kihuzando.
 // Tilos:
@@ -65,13 +65,15 @@ unsigned int vao;	   // virtual world on the GPU
 unsigned int vaoLines;		// vao for the edges between graphpoints
 const int GRAPHPOINTS = 50;	// numof graph points
 float verticesCoordinates[GRAPHPOINTS * 2] = { 0 };		// array of coordinates
-float mouseXPrev;
-float mouseYPrev;
-float mouseXNext;
-float mouseYNext;
+float mouseXPrev = 0.0f;
+float mouseYPrev = 0.0f;
+float mouseXNext = 0.0f;
+float mouseYNext = 0.0f;
 float vertices[GRAPHPOINTS * 3 * 2 * 2];		// because we're building squares, which is two triangles  (triangles*2 points for coordinates*two triangles)
-unsigned int vbo;		// vertex buffer object
-unsigned int vboLines;		// vbo for the edges between graphpoints
+unsigned int vbo[2];		// vertex buffer object	 + 1-es indexre textúrát rakni és növelni eggyel a méretét
+//unsigned int vboLines;		// vbo for the edges between graphpoints
+const int NUMOFEDGES = (int)(GRAPHPOINTS * (GRAPHPOINTS - 1.0f) / 2.0f * 0.05f);
+float verticesLines[NUMOFEDGES * 2];		// number of edges between graphpoints
 
 //vec3 mouseMoves(float pX, float pY, float coordX, float coordY);
 vec3 getDivider(vec3 a, vec3 b, float ratio);
@@ -89,8 +91,11 @@ void onInitialization() {
 	glGenVertexArrays(1, &vao);	// get 1 vao id
 	glBindVertexArray(vao);		// make it active
 
-	glGenBuffers(1, &vbo);	// Generate 1 buffer
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glGenVertexArrays(1, &vaoLines);	// get 1 vaoLines id
+	
+
+	glGenBuffers(2, vbo);	// Generate 1 buffer		// removed & becuase its an array now & 2 buffer now
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
 	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
 
 	const float SIDELENGTH = 0.05;
@@ -102,25 +107,25 @@ void onInitialization() {
 		float randX1 = (rand() % 100 - 50) / 100.0;
 		float randY1 = (rand() % 100 - 50) / 100.0;
 		vec3 rand1 = calcVec3withW(randX1, randY1);		// a random point on which a generated point is being mirrored
-		
+
 
 		float randX2 = (rand() % 100 - 50) / 100.0;
 		float randY2 = (rand() % 100 - 50) / 100.0;
 		vec3 rand2 = calcVec3withW(randX2, randY2);		// a random point on which a generated point is being mirrored
-	
-		vec3 kozep = calcVec3withW(0,0);				// new point in the middle 
-		
+
+		vec3 kozep = calcVec3withW(0, 0);				// new point in the middle 
+
 		kozep = getMirrorOnPoint(kozep, rand1);			// new point being translated elsewhere (on the hypebolic plane) randomly
-		kozep = getMirrorOnPoint(kozep, rand2);	
+		kozep = getMirrorOnPoint(kozep, rand2);
 		verticesCoordinates[j] = kozep.x;
 		verticesCoordinates[j + 1] = kozep.y;
 		j += 2;
 
 		// the four corners of the square (six points in total becasuse of the 2 triangles) being translated
-		vec3 egy =	 calcVec3withW(-SIDELENGTH / 2, -SIDELENGTH / 2);
+		vec3 egy = calcVec3withW(-SIDELENGTH / 2, -SIDELENGTH / 2);
 		vec3 ketto = calcVec3withW(-SIDELENGTH / 2, +SIDELENGTH / 2);
 		vec3 harom = calcVec3withW(+SIDELENGTH / 2, -SIDELENGTH / 2);
-		vec3 negy =	 calcVec3withW(+SIDELENGTH / 2, +SIDELENGTH / 2);
+		vec3 negy = calcVec3withW(+SIDELENGTH / 2, +SIDELENGTH / 2);
 		egy = getMirrorOnPoint(egy, rand1);
 		egy = getMirrorOnPoint(egy, rand2);
 		ketto = getMirrorOnPoint(ketto, rand1);
@@ -141,11 +146,11 @@ void onInitialization() {
 		vertices[i + 4] = harom.x;
 		vertices[i + 5] = harom.y;
 
-		vertices[i + 6] =  ketto.x;
-		vertices[i + 7] =  ketto.y;
-		vertices[i + 8] =  harom.x;
-		vertices[i + 9] =  harom.y;
-		
+		vertices[i + 6] = ketto.x;
+		vertices[i + 7] = ketto.y;
+		vertices[i + 8] = harom.x;
+		vertices[i + 9] = harom.y;
+
 		vertices[i + 10] = negy.x;
 		vertices[i + 11] = negy.y;
 
@@ -170,11 +175,20 @@ void onInitialization() {
 		//vertices[i + 11] = randY + SIDELENGTH / 2;
 	}
 
-	for (int i = 0; i < GRAPHPOINTS * 2; i++)
+	for (int i = 0; i < GRAPHPOINTS * 2; i += 2)
 	{
 		printf("X:%3.2f Y:%3.2f\n", verticesCoordinates[i], verticesCoordinates[i + 1]);
 	}
 
+	for (int i = 0; i < NUMOFEDGES * 2; i += 2) {
+		int randA = rand() % 50;
+		int randB;
+		do {
+			randB = rand() % 50;
+		} while (randA == randB);
+		verticesLines[i + 0] = verticesCoordinates[randA];
+		verticesLines[i + 1] = verticesCoordinates[randB];
+	}
 
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
 		sizeof(vertices),  // # bytes
@@ -186,6 +200,18 @@ void onInitialization() {
 		2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
 		0, NULL); 		     // stride, offset: tightly packed
 
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);	// binding lines vbo
+
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(verticesLines),  // # bytes
+		verticesLines,	      	// address
+		GL_STATIC_DRAW);	// we do not change later
+
+
+	//glVertexAttribPointer(0,       // vbo -> AttribArray 0
+	//	2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
+	//	0, NULL); 		     // stride, offset: tightly packed
+
 	// create program for the GPU
 	gpuProgram.create(vertexSource, fragmentSource, "outColor");
 }
@@ -193,9 +219,13 @@ void onInitialization() {
 // Window has become invalid: Redraw
 void onDisplay() {
 	//	in case of motion
+	glClearColor(0, 0, 0, 0);     // background color
+	glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
+
 	if (mouseXNext != mouseXPrev || mouseYNext != mouseYPrev) {		// as to not get zero division		todo: check if on hyperbolic plane
 		if (mouseXNext * mouseXNext + mouseYNext * mouseYNext < 1) {
 			vec3 a = calcHyperbolicCoord(mouseXPrev, mouseYPrev);
+			printf("mouseXPrev: %3.5f, mouseYPrev: %3.5f\n", mouseXPrev, mouseYPrev);
 			printVec3(a);
 			vec3 b = calcHyperbolicCoord(mouseXNext, mouseYNext);
 			printVec3(b);
@@ -216,14 +246,16 @@ void onDisplay() {
 
 
 	//
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
 		sizeof(vertices),  // # bytes
 		vertices,	      	// address
 		GL_STATIC_DRAW);	// we do not change later
 
-	glClearColor(0, 0, 0, 0);     // background color
-	glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
+
+
+	//glClearColor(0, 0, 0, 0);     // background color
+	//glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
 
 	// Set color to (0, 1, 0) = green
 	int location = glGetUniformLocation(gpuProgram.getId(), "color");
@@ -240,6 +272,23 @@ void onDisplay() {
 
 	glBindVertexArray(vao);  // Draw call
 	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 3 * GRAPHPOINTS * 2 /*# Elements*/);		// 3 for 3 points * graph points * 2 triangles each
+
+
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(verticesLines),  // # bytes
+		verticesLines,	      	// address
+		GL_STATIC_DRAW);	// we do not change later
+	glDrawArrays(GL_LINES, 0 /*startIdx*/, NUMOFEDGES * 2 /*# Elements*/);
+
+
+	GLenum errCode;
+	const GLubyte *errString;
+
+	if ((errCode = glGetError()) != GL_NO_ERROR) {
+		printf("OpengGL Error: %d\n", errCode);
+	}
+
 
 	glutSwapBuffers(); // exchange buffers for double buffering
 }
