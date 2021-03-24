@@ -40,12 +40,30 @@ const char *const vertexSource = R"(
 
 	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
 	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+	out float n;
 
 	void main() {
 		float w = sqrt(vp.x*vp.x + vp.y*vp.y + 1);
 		gl_Position = vec4(vp.x/w, vp.y/w, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
+		n = vp.x+vp.y+w;
 	}
 )";
+
+//// vertex shader in GLSL: It is a Raw string (C++11) since it contains new line characters
+//const char *const vertexSource = R"(
+//	#version 330				// Shader 3.3
+//	precision highp float;		// normal floats, makes no difference on desktop computers
+//
+//	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
+//	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+//
+//	void main() {
+//		float w = sqrt(vp.x*vp.x + vp.y*vp.y + 1);
+//		gl_Position = vec4(vp.x/w, vp.y/w, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
+//	}
+//)";
+
+
 
 // fragment shader in GLSL
 const char *const fragmentSource = R"(
@@ -54,11 +72,27 @@ const char *const fragmentSource = R"(
 	
 	uniform vec3 color;		// uniform variable, the color of the primitive
 	out vec4 outColor;		// computed color of the current pixel
+	in float n;
 
 	void main() {
-		outColor = vec4(color, 1);	// computed color is the color of the primitive
+		outColor = vec4(abs(sin(n-0)), abs(sin(n-1)), abs(sin(n-2)), 1);	// computed color is the color of the primitive
 	}
 )";
+
+//// fragment shader in GLSL
+//const char *const fragmentSource = R"(
+//	#version 330			// Shader 3.3
+//	precision highp float;	// normal floats, makes no difference on desktop computers
+//	
+//	uniform vec3 color;		// uniform variable, the color of the primitive
+//	out vec4 outColor;		// computed color of the current pixel
+//
+//	void main() {
+//		outColor = vec4(color, 1);	// computed color is the color of the primitive
+//	}
+//)";
+
+
 
 GPUProgram gpuProgram; // vertex and fragment shaders
 unsigned int vao;	   // virtual world on the GPU
@@ -73,7 +107,7 @@ float vertices[GRAPHPOINTS * 3 * 2 * 2];		// because we're building squares, whi
 unsigned int vbo[2];		// vertex buffer object	 + 1-es indexre textúrát rakni és növelni eggyel a méretét
 //unsigned int vboLines;		// vbo for the edges between graphpoints
 const int NUMOFEDGES = (int)(GRAPHPOINTS * (GRAPHPOINTS - 1.0f) / 2.0f * 0.05f);
-float verticesLines[NUMOFEDGES * 2];		// number of edges between graphpoints
+float verticesLines[NUMOFEDGES * 4];		// number of edges between graphpoints
 
 //vec3 mouseMoves(float pX, float pY, float coordX, float coordY);
 vec3 getDivider(vec3 a, vec3 b, float ratio);
@@ -92,7 +126,7 @@ void onInitialization() {
 	glBindVertexArray(vao);		// make it active
 
 	glGenVertexArrays(1, &vaoLines);	// get 1 vaoLines id
-	
+
 
 	glGenBuffers(2, vbo);	// Generate 1 buffer		// removed & becuase its an array now & 2 buffer now
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
@@ -180,14 +214,16 @@ void onInitialization() {
 		printf("X:%3.2f Y:%3.2f\n", verticesCoordinates[i], verticesCoordinates[i + 1]);
 	}
 
-	for (int i = 0; i < NUMOFEDGES * 2; i += 2) {
-		int randA = rand() % 50;
+	for (int i = 0; i < NUMOFEDGES * 2; i += 4) {
+		int randA = rand() % GRAPHPOINTS;
 		int randB;
 		do {
-			randB = rand() % 50;
+			randB = rand() % GRAPHPOINTS;
 		} while (randA == randB);
-		verticesLines[i + 0] = verticesCoordinates[randA];
-		verticesLines[i + 1] = verticesCoordinates[randB];
+		verticesLines[i + 0] = verticesCoordinates[randA * 2 + 0];
+		verticesLines[i + 1] = verticesCoordinates[randA * 2 + 1];
+		verticesLines[i + 2] = verticesCoordinates[randB * 2 + 0];
+		verticesLines[i + 3] = verticesCoordinates[randB * 2 + 1];
 	}
 
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
@@ -240,6 +276,17 @@ void onDisplay() {
 				//printVec3(temp);
 				vertices[i + 0] = temp.x;			// X coordinate of said point
 				vertices[i + 1] = temp.y;			// Y coordinate of said point
+
+				//TODO: eltolni a vonalak végpontjait is
+			}
+			for (int i = 0; i < NUMOFEDGES * 4; i += 2) {
+				vec3 temp = { verticesLines[i + 0], verticesLines[i + 1], calcW(verticesLines[i + 0], verticesLines[i + 1]) };
+				//printVec3(temp);
+				temp = getMirrorOnPoint(temp, m1);
+				temp = getMirrorOnPoint(temp, m2);
+				//printVec3(temp);
+				verticesLines[i + 0] = temp.x;			// X coordinate of said point
+				verticesLines[i + 1] = temp.y;			// Y coordinate of said point
 			}
 		}
 	}
@@ -252,6 +299,11 @@ void onDisplay() {
 		vertices,	      	// address
 		GL_STATIC_DRAW);	// we do not change later
 
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
+	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+		sizeof(verticesLines),  // # bytes
+		verticesLines,	      	// address
+		GL_STATIC_DRAW);	// we do not change later
 
 
 	//glClearColor(0, 0, 0, 0);     // background color
@@ -271,14 +323,17 @@ void onDisplay() {
 
 
 	glBindVertexArray(vao);  // Draw call
+
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+	glVertexAttribPointer(0,       // vbo -> AttribArray 0
+		2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
+		0, NULL); 		     // stride, offset: tightly packed
 	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 3 * GRAPHPOINTS * 2 /*# Elements*/);		// 3 for 3 points * graph points * 2 triangles each
 
-
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(verticesLines),  // # bytes
-		verticesLines,	      	// address
-		GL_STATIC_DRAW);	// we do not change later
+	glVertexAttribPointer(0,       // vbo -> AttribArray 0
+		2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
+		0, NULL); 		     // stride, offset: tightly packed
 	glDrawArrays(GL_LINES, 0 /*startIdx*/, NUMOFEDGES * 2 /*# Elements*/);
 
 
@@ -292,7 +347,6 @@ void onDisplay() {
 
 	glutSwapBuffers(); // exchange buffers for double buffering
 }
-
 // Key of ASCII code pressed
 void onKeyboard(unsigned char key, int pX, int pY) {
 	if (key == 'd') glutPostRedisplay();         // if d, invalidate display, i.e. redraw
