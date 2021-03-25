@@ -41,16 +41,13 @@ const char *const vertexSource = R"(
 	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
 	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
 	layout(location = 1) in vec2 UV;
-	layout(location = 2) in float seed;
 
 	out vec2 texCoord;
-	out float funcSeed;
 
 	void main() {
 		float w = sqrt(vp.x*vp.x + vp.y*vp.y + 1);
 		gl_Position = vec4(vp.x/w, vp.y/w, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
 		texCoord = UV;
-		funcSeed = seed;
 	}
 )";
 
@@ -60,25 +57,54 @@ const char *const fragmentSource = R"(
 	#version 330			// Shader 3.3
 	precision highp float;	// normal floats, makes no difference on desktop computers
 	
-	uniform vec3 color;		// uniform variable, the color of the primitive
+	//uniform vec3 color;		// uniform variable, the color of the primitive
 	out vec4 outColor;		// computed color of the current pixel
 	in vec2 texCoord;		
-	in float funcSeed;
+	uniform sampler2D imageSampler;
 
 	void main() {
-		//outColor = vec4(color, 1);	// computed color is the color of the primitive
-		if(texCoord.x * texCoord.x + texCoord.y * texCoord.y < 1){
-			outColor = vec4(sin(funcSeed)/2+1, sin(funcSeed+1)/2+1, sin(funcSeed+2)/2+1, 1);	// computed color is the color of the primitive
-		}
-		else{
-			outColor = vec4(0.0f, 0.0f, 0.0f, 0.0f);
-		}
+		 //outColor = vec4(color, 1);    // computed color is the color of the primitive
+
+        //if(texCoord.x * texCoord.x + texCoord.y * texCoord.y < 1){
+        //    outColor = vec4((sin(funcSeed)+1)/2, (sin(funcSeed+1)+1)/2, (sin(funcSeed+2)+1)/2, 1);    // computed color is the color of the primitive
+        //}
+        //else{
+        //    outColor = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        //}
+
+		outColor = texture(imageSampler, texCoord).rgba;
+	}
+)";
+
+
+const char *const vertexSourceEdge = R"(
+	#version 330				// Shader 3.3
+	precision highp float;		// normal floats, makes no difference on desktop computers
+
+	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
+	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+
+	void main() {
+		float w = sqrt(vp.x*vp.x + vp.y*vp.y + 1);
+		gl_Position = vec4(vp.x/w, vp.y/w, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
+	}
+)";
+
+const char *const fragmentSourceEdge = R"(
+	#version 330			// Shader 3.3
+	precision highp float;	// normal floats, makes no difference on desktop computers
+	
+	uniform vec3 color;		// uniform variable, the color of the primitive
+	out vec4 outColor;		// computed color of the current pixel
+
+	void main() {
+		 outColor = vec4(color, 1);    // computed color is the color of the primitive
 	}
 )";
 
 
 
-GPUProgram gpuProgram; // vertex and fragment shaders
+GPUProgram gpuProgram[2]; // vertex and fragment shaders
 unsigned int vao;	   // virtual world on the GPU
 unsigned int vaoLines;		// vao for the edges between graphpoints
 const int GRAPHPOINTS = 50;	// numof graph points
@@ -91,11 +117,12 @@ float mouseYNext = 0.0f;
 float vertices[GRAPHPOINTS * 3 * 2 * 2];		// because we're building squares, which is two triangles  (triangles*2 points for coordinates*two triangles)
 unsigned int vbo[4];		// vertex buffer object	 0: vertices(négyzetcsúcsok)	1: edges(élek)		2: textúra		3: színek
 //unsigned int vboLines;		// vbo for the edges between graphpoints
-const int NUMOFEDGES = (int)(GRAPHPOINTS * (GRAPHPOINTS - 1.0f) / 2.0f * 0.05f);
+const int NUMOFEDGES = (int)(GRAPHPOINTS * (GRAPHPOINTS - 1.0f) / 2.0f * 0.05f) + 1;
 //vec2 graphEdges[NUMOFEDGES * 2] = { 0.0f, 0.0f };		// relation between points which one has an edge
 bool adjacencyMtx[GRAPHPOINTS][GRAPHPOINTS] = { false };
 float verticesLines[NUMOFEDGES * 4];		// number of edges between graphpoints
 float textureCoordinates[GRAPHPOINTS * 3 * 2 * 2];
+Texture textures[GRAPHPOINTS];
 float colorSeeds[GRAPHPOINTS * 3 * 2];
 const float FRICTION = 0.7f;
 vec2 centreOfMass = { 0.0f, 0.0f };
@@ -117,13 +144,14 @@ void graphMoves();
 vec2 calcCentreOfMass(vec2 in);
 vec2 calcMovingVector(float x, float y, vec3 m1, vec3 m2);
 float vec3Distance(vec3 p, vec3 q);
+vec3 dirVecFrom2Points(vec3 p, vec3 q, float d_pq);
 
 // Initialization, create an OpenGL context
 void onInitialization() {
 	glViewport(0, 0, windowWidth, windowHeight);
 
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);		//lehet nem lehet használni xdd
-	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);		// nem tudtam hogy lehet az alpha channel erteket modositani, igy az alabbi forrast hasznaltam a 125-126-os sorokra
+	glEnable(GL_BLEND);										// forras: https://stackoverflow.com/questions/1617370/how-to-use-alpha-transparency-in-opengl
 
 	glGenVertexArrays(1, &vao);	// get 1 vao id
 
@@ -193,24 +221,46 @@ void onInitialization() {
 		printf("X:%3.2f Y:%3.2f\n", verticesCoordinates[i], verticesCoordinates[i + 1]);
 	}
 
-	j = 0;
-	for (int i = 0; i < NUMOFEDGES * 2; i += 4) {
-		int randA = rand() % GRAPHPOINTS;
-		int randB;
-		do {
-			randB = rand() % GRAPHPOINTS;
-		} while (randA == randB);
-		/*verticesLines[i + 0] = verticesCoordinates[randA * 2 + 0];
-		verticesLines[i + 1] = verticesCoordinates[randA * 2 + 1];*/
-		//graphEdges[j + 0] = vec2(verticesLines[i + 0], verticesLines[i + 1]);
-		adjacencyMtx[randA][randB] = true;
+	//j = 0;
+	//for (int i = 0; i < NUMOFEDGES * 2; i += 4) {
 
-		/*verticesLines[i + 2] = verticesCoordinates[randB * 2 + 0];
-		verticesLines[i + 3] = verticesCoordinates[randB * 2 + 1];*/
-		//graphEdges[j + 1] = vec2(verticesLines[i + 2], verticesLines[i + 3]);
-		adjacencyMtx[randB][randA] = true;
-		//j += 2;
+	//	int randA = rand() % GRAPHPOINTS;
+	//	int randB;
+	//	do {
+	//		randB = rand() % GRAPHPOINTS;
+	//	} while (randA == randB);
+	//	/*verticesLines[i + 0] = verticesCoordinates[randA * 2 + 0];
+	//	verticesLines[i + 1] = verticesCoordinates[randA * 2 + 1];*/
+	//	//graphEdges[j + 0] = vec2(verticesLines[i + 0], verticesLines[i + 1]);
+	//	adjacencyMtx[randA][randB] = true;
+
+	//	/*verticesLines[i + 2] = verticesCoordinates[randB * 2 + 0];
+	//	verticesLines[i + 3] = verticesCoordinates[randB * 2 + 1];*/
+	//	//graphEdges[j + 1] = vec2(verticesLines[i + 2], verticesLines[i + 3]);
+	//	adjacencyMtx[randB][randA] = true;
+	//	//j += 2;
+	//}
+
+
+	int x = 1;
+	int y = 0;
+	for (int i = 0; i < GRAPHPOINTS * (GRAPHPOINTS - 1) / 2; i++) {
+		if (i % 20 == 0) {		// 5%-os kitöltöttség miatt
+			adjacencyMtx[x][y] = true;
+			adjacencyMtx[y][x] = true;
+		}
+		if (x < GRAPHPOINTS) {
+			x++;
+		}
+		else {
+			y++;
+			x = y + 1;
+		}
 	}
+
+	// TODO ha van idõ még: máshogy éleket behúzni
+
+
 	// TODO késõbb átrakni másik fv-be ha van idõ
 	int n = 0;
 	for (int i = 0; i < GRAPHPOINTS; i++) {
@@ -227,26 +277,43 @@ void onInitialization() {
 	}
 
 	for (int i = 0; i < GRAPHPOINTS * 2 * 2 * 3; i += 12) {
-		textureCoordinates[i + 0] = { -1.0f };
-		textureCoordinates[i + 1] = { -1.0f };
+		textureCoordinates[i + 0] = { 0.0f };
+		textureCoordinates[i + 1] = { 0.0f };
 
-		textureCoordinates[i + 2] = { -1.0f };
+		textureCoordinates[i + 2] = { 0.0f };
 		textureCoordinates[i + 3] = { +1.0f };
 
 		textureCoordinates[i + 4] = { +1.0f };
-		textureCoordinates[i + 5] = { -1.0f };
+		textureCoordinates[i + 5] = { 0.0f };
 
-		textureCoordinates[i + 6] = { -1.0f };
+		textureCoordinates[i + 6] = { 0.0f };
 		textureCoordinates[i + 7] = { +1.0f };
 
 		textureCoordinates[i + 8] = { +1.0f };
-		textureCoordinates[i + 9] = { -1.0f };
+		textureCoordinates[i + 9] = { 0.0f };
 
-		textureCoordinates[i +10] = { +1.0f };
-		textureCoordinates[i +11] = { +1.0f };
+		textureCoordinates[i + 10] = { +1.0f };
+		textureCoordinates[i + 11] = { +1.0f };
 	}
 
-	for (int i = 0; i < GRAPHPOINTS * 3 * 2; i+=6){
+	std::vector<vec4> imageBuffer(16 * 16);
+	for (int i = 0; i < GRAPHPOINTS; i++) {
+		vec4 c = vec4(sin(i + 1), sin(i - 1), 0.8f, 1.0f);
+		for (int x = 0; x < 16; x++) {
+			for (int y = 0; y < 16; y++) {
+				if ((x - 8) * (x - 8) + (y - 8) * (y - 8) < 8 * 8) {
+					imageBuffer[x + y * 16] = c;
+				}
+				else {
+					imageBuffer[x + y * 16] = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+				}
+			}
+		}
+		textures[i].create(16, 16, imageBuffer);
+	}
+
+
+	for (int i = 0; i < GRAPHPOINTS * 3 * 2; i += 6) {
 		colorSeeds[i + 0] = rand() % 200;
 		colorSeeds[i + 1] = colorSeeds[i + 0];
 		colorSeeds[i + 2] = colorSeeds[i + 0];
@@ -299,14 +366,15 @@ void onInitialization() {
 	glVertexAttribPointer(0,
 		2, GL_FLOAT, GL_FALSE,
 		0, NULL);
-	
+
 
 	//glVertexAttribPointer(0,       // vbo -> AttribArray 0
 	//	2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
 	//	0, NULL); 		     // stride, offset: tightly packed
 
 	// create program for the GPU
-	gpuProgram.create(vertexSource, fragmentSource, "outColor");
+	gpuProgram[0].create(vertexSource, fragmentSource, "outColor");
+	gpuProgram[1].create(vertexSourceEdge, fragmentSourceEdge, "outColor");
 }
 
 // Window has become invalid: Redraw
@@ -332,25 +400,35 @@ void onDisplay() {
 		GL_STATIC_DRAW);	// we do not change later
 
 
-	// Set color to (0, 1, 0) = green
-	int location = glGetUniformLocation(gpuProgram.getId(), "color");
-	glUniform3f(location, 1.0f, 0.8f, 0.0f); // 3 floats
 
 	float MVPtransf[4][4] = { 1, 0, 0, 0,    // MVP matrix, 
 							  0, 1, 0, 0,    // row-major!
 							  0, 0, 1, 0,
 							  0, 0, 0, 1 };
 
-	location = glGetUniformLocation(gpuProgram.getId(), "MVP");	// Get the GPU location of uniform variable MVP
+	gpuProgram[1].Use();
+
+	int location = glGetUniformLocation(gpuProgram[1].getId(), "color");
+	glUniform3f(location, 1.0f, 0.8f, 0.0f); // 3 floats
+	location = glGetUniformLocation(gpuProgram[1].getId(), "MVP");	// Get the GPU location of uniform variable MVP
 	glUniformMatrix4fv(location, 1, GL_TRUE, &MVPtransf[0][0]);	// Load a 4x4 row-major float matrix to the specified location
-
-
-	glBindVertexArray(vao);  // Draw call
-	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 3 * GRAPHPOINTS * 2 /*# Elements*/);		// 3 for 3 points * graph points * 2 triangles each
 
 
 	glBindVertexArray(vaoLines);
 	glDrawArrays(GL_LINES, 0 /*startIdx*/, NUMOFEDGES * 2 /*# Elements*/);
+
+	gpuProgram[0].Use();
+	location = glGetUniformLocation(gpuProgram[0].getId(), "MVP");	// Get the GPU location of uniform variable MVP
+	glUniformMatrix4fv(location, 1, GL_TRUE, &MVPtransf[0][0]);	// Load a 4x4 row-major float matrix to the specified location
+	for (int i = 0; i < GRAPHPOINTS; i++) {
+		gpuProgram[0].setUniform(textures[i], "imageSampler");
+
+
+		glBindVertexArray(vao);  // Draw call
+		glDrawArrays(GL_TRIANGLES, i * 3 * 2 /*startIdx*/, 3 * 2 /*# Elements*/);
+		//glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 3 * GRAPHPOINTS * 2 /*# Elements*/);		// 3 for 3 points * graph points * 2 triangles each
+	}
+
 
 	glutSwapBuffers(); // exchange buffers for double buffering
 }
@@ -358,7 +436,7 @@ void onDisplay() {
 void onKeyboard(unsigned char key, int pX, int pY) {
 	if (key == 'd') glutPostRedisplay();         // if d, invalidate display, i.e. redraw
 	if (key == 32) { isSpace = true; }
-	else isSpace = false;
+	else isSpace = false;		//TODO: máshogy kikapcsolni
 }
 
 // Key of ASCII code released
@@ -375,6 +453,7 @@ void onMouseMotion(int pX, int pY) {	// pX, pY are the pixel coordinates of the 
 	mouseXNext = cX;
 	mouseYNext = cY;
 	onDisplay();
+	//glutPostRedisplay();	//idk ez kb ugyanazt csinálja mint az onDisplay
 	printf("Mouse moved to (%3.2f, %3.2f)\n", cX, cY);
 }
 
@@ -400,12 +479,17 @@ void onMouse(int button, int state, int pX, int pY) { // pX, pY are the pixel co
 // Idle event indicating that some time elapsed: do animation here
 void onIdle() {
 
+	//onDisplay();
+	//glutPostRedisplay();
+
 	long time = glutGet(GLUT_ELAPSED_TIME); // elapsed time since the start of the program
 	if (isSpace) {
-		centreOfMass = calcCentreOfMass(centreOfMass);		//kiszamolom a tomegkozeppontot
-		//TODO:	kiszámolni a tömegközéppontot, annak az origoba mutató vektorát és minden csúcsot ennyivel eltolni minden iterációban
-		vec3 v_centreMass = calcVec3withW(centreOfMass.x, centreOfMass.y);
+		//centreOfMass = calcCentreOfMass(centreOfMass);		//kiszamolom a tomegkozeppontot
+		////TODO:	kiszámolni a tömegközéppontot, annak az origoba mutató vektorát és minden csúcsot ennyivel eltolni minden iterációban
+		//vec3 v_centreMass = calcVec3withW(centreOfMass.x, centreOfMass.y);
+		//printf("tomagkozeppont: x:%3.5f, y:%3.5f, w:%3.5f\n", v_centreMass.x, v_centreMass.y, v_centreMass.);
 
+		//exit(0);
 		int j = 0;
 		// gráf középpontjainak mozgatása
 		for (int i = 0; i < GRAPHPOINTS; i += 2) {		//TODO: mozgatni majd a négyzet csúcsait is
@@ -415,8 +499,18 @@ void onIdle() {
 			// Fi vektorral odébbtolni az adott koordinátát
 			float x = verticesCoordinates[j];
 			float y = verticesCoordinates[j + 1];
+
+			vec3 thisPoint = calcVec3withW(x, y);
+			float d_PO = vec3Distance(thisPoint, vec3(0.0f, 0.0f, 1.0f));
+
+			if (d_PO > 0.5f) {
+				thisPoint = pointFromVDir(thisPoint, dirVecFrom2Points(thisPoint, vec3(0.0f, 0.0f, 1.0f), d_PO), 0.05f);		//t 0 - d_PO között egy szám, minél kisebb lehetõleg
+			}
+
 			vec3 temp = pointFromVDir(calcVec3withW(x, y), velocity[i], 0.0005f);		// más távolság
 
+
+			//el kell tolni ide nem megadni???
 			verticesCoordinates[j] = temp.x;
 			verticesCoordinates[j + 1] = temp.y;
 			j += 2;
@@ -485,6 +579,7 @@ vec3 getDivider(vec3 a, vec3 b, float ratio) {
 	float d_ab = vec3Distance(a, b);
 	//printf("d_ab = %3.5f\n", d_ab);
 	vec3 v = dirVecFrom2Points(a, b, d_ab);
+	//normalize(v);
 	return (pointFromVDir(a, v, ratio * d_ab));
 }
 
