@@ -33,7 +33,7 @@
 //=============================================================================================
 #include "framework.h"
 
-// vertex shader in GLSL: It is a Raw string (C++11) since it contains new line characters
+
 const char *const vertexSource = R"(
 	#version 330				// Shader 3.3
 	precision highp float;		// normal floats, makes no difference on desktop computers
@@ -52,7 +52,6 @@ const char *const vertexSource = R"(
 )";
 
 
-// fragment shader in GLSL
 const char *const fragmentSource = R"(
 	#version 330			// Shader 3.3
 	precision highp float;	// normal floats, makes no difference on desktop computers
@@ -104,34 +103,32 @@ const char *const fragmentSourceEdge = R"(
 
 
 
-GPUProgram gpuProgram[2]; // vertex and fragment shaders
-unsigned int vao;	   // virtual world on the GPU
-unsigned int vaoLines;		// vao for the edges between graphpoints
-const int GRAPHPOINTS = 50;	// numof graph points
-float verticesCoordinates[GRAPHPOINTS * 2] = { 0 };		// array of coordinates
+GPUProgram gpuProgram[2];
+unsigned int vao;
+unsigned int vaoLines;
+const int GRAPHPOINTS = 50;
+float verticesCoordinates[GRAPHPOINTS * 2] = { 0 };
 vec2 velocity[50] = { 0.0f, 0.0f };
 float mouseXPrev = 0.0f;
 float mouseYPrev = 0.0f;
 float mouseXNext = 0.0f;
 float mouseYNext = 0.0f;
-float vertices[GRAPHPOINTS * 3 * 2 * 2];		// because we're building squares, which is two triangles  (triangles*2 points for coordinates*two triangles)
-unsigned int vbo[4];		// vertex buffer object	 0: vertices(négyzetcsúcsok)	1: edges(élek)		2: textúra		3: színek
-//unsigned int vboLines;		// vbo for the edges between graphpoints
+float vertices[GRAPHPOINTS * 3 * 2 * 2];
+unsigned int vbo[3];
 const int NUMOFEDGES = (int)(GRAPHPOINTS * (GRAPHPOINTS - 1.0f) / 2.0f * 0.05f) + 1;
-//vec2 graphEdges[NUMOFEDGES * 2] = { 0.0f, 0.0f };		// relation between points which one has an edge
 bool adjacencyMtx[GRAPHPOINTS][GRAPHPOINTS] = { false };
-float verticesLines[NUMOFEDGES * 4];		// number of edges between graphpoints
+float verticesLines[NUMOFEDGES * 4];
 float textureCoordinates[GRAPHPOINTS * 3 * 2 * 2];
 Texture textures[GRAPHPOINTS];
-float colorSeeds[GRAPHPOINTS * 3 * 2];
 const float FRICTION = 0.7f;
 vec2 centreOfMass = { 0.0f, 0.0f };
 bool isSpace = false;
 const float optimalDistance = 2.0f;
 const float SIDELENGTH = 0.05;
+float lastTime = 0.0f;
+bool mouseUpdate = false;
 
 
-//vec3 mouseMoves(float pX, float pY, float coordX, float coordY);
 vec3 getDivider(vec3 a, vec3 b, float ratio);
 vec3 getMirrorOnPoint(vec3 p, vec3 on);
 void printVec3(vec3 in);
@@ -145,45 +142,43 @@ vec2 calcCentreOfMass(vec2 in);
 vec2 calcMovingVector(float x, float y, vec3 m1, vec3 m2);
 float vec3Distance(vec3 p, vec3 q);
 vec3 dirVecFrom2Points(vec3 p, vec3 q, float d_pq);
+void graphForceMoves(float dt);
+vec3 forceOn2Points(vec3 p, vec3 pb);
+void refreshVertices();
 
-// Initialization, create an OpenGL context
 void onInitialization() {
 	glViewport(0, 0, windowWidth, windowHeight);
 
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);		// nem tudtam hogy lehet az alpha channel erteket modositani, igy az alabbi forrast hasznaltam a 125-126-os sorokra
 	glEnable(GL_BLEND);										// forras: https://stackoverflow.com/questions/1617370/how-to-use-alpha-transparency-in-opengl
 
-	glGenVertexArrays(1, &vao);	// get 1 vao id
+	glGenVertexArrays(1, &vao);
 
-	glGenVertexArrays(1, &vaoLines);	// get 1 vaoLines id
+	glGenVertexArrays(1, &vaoLines);
 
 
-	glGenBuffers(4, vbo);	// Generate 1 buffer		// removed & becuase its an array now & 2 buffer now
-	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
-
-	//float vertices[] = { -0.8f, -0.8f, -0.6f, 1.0f, 0.8f, -0.2f };
+	glGenBuffers(3, vbo);
 
 	int j = 0;
-	for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 12)		//generating graphpoints
+	for (int i = 0; i < GRAPHPOINTS * 3 * 2 * 2; i += 12)
 	{
 		float randX1 = (rand() % 100 - 50) / 100.0;
 		float randY1 = (rand() % 100 - 50) / 100.0;
-		vec3 rand1 = calcVec3withW(randX1, randY1);		// a random point on which a generated point is being mirrored
+		vec3 rand1 = calcVec3withW(randX1, randY1);
 
 
 		float randX2 = (rand() % 100 - 50) / 100.0;
 		float randY2 = (rand() % 100 - 50) / 100.0;
-		vec3 rand2 = calcVec3withW(randX2, randY2);		// a random point on which a generated point is being mirrored
+		vec3 rand2 = calcVec3withW(randX2, randY2);
 
-		vec3 kozep = calcVec3withW(0, 0);				// new point in the middle 
+		vec3 kozep = calcVec3withW(0, 0);
 
-		kozep = getMirrorOnPoint(kozep, rand1);			// new point being translated elsewhere (on the hypebolic plane) randomly
+		kozep = getMirrorOnPoint(kozep, rand1);
 		kozep = getMirrorOnPoint(kozep, rand2);
 		verticesCoordinates[j] = kozep.x;
 		verticesCoordinates[j + 1] = kozep.y;
 		j += 2;
 
-		// the four corners of the square (six points in total becasuse of the 2 triangles) being translated
 		vec3 egy = calcVec3withW(-SIDELENGTH / 2, -SIDELENGTH / 2);
 		vec3 ketto = calcVec3withW(-SIDELENGTH / 2, +SIDELENGTH / 2);
 		vec3 harom = calcVec3withW(+SIDELENGTH / 2, -SIDELENGTH / 2);
@@ -221,31 +216,11 @@ void onInitialization() {
 		printf("X:%3.2f Y:%3.2f\n", verticesCoordinates[i], verticesCoordinates[i + 1]);
 	}
 
-	//j = 0;
-	//for (int i = 0; i < NUMOFEDGES * 2; i += 4) {
-
-	//	int randA = rand() % GRAPHPOINTS;
-	//	int randB;
-	//	do {
-	//		randB = rand() % GRAPHPOINTS;
-	//	} while (randA == randB);
-	//	/*verticesLines[i + 0] = verticesCoordinates[randA * 2 + 0];
-	//	verticesLines[i + 1] = verticesCoordinates[randA * 2 + 1];*/
-	//	//graphEdges[j + 0] = vec2(verticesLines[i + 0], verticesLines[i + 1]);
-	//	adjacencyMtx[randA][randB] = true;
-
-	//	/*verticesLines[i + 2] = verticesCoordinates[randB * 2 + 0];
-	//	verticesLines[i + 3] = verticesCoordinates[randB * 2 + 1];*/
-	//	//graphEdges[j + 1] = vec2(verticesLines[i + 2], verticesLines[i + 3]);
-	//	adjacencyMtx[randB][randA] = true;
-	//	//j += 2;
-	//}
-
 
 	int x = 1;
 	int y = 0;
 	for (int i = 0; i < GRAPHPOINTS * (GRAPHPOINTS - 1) / 2; i++) {
-		if (i % 20 == 0) {		// 5%-os kitöltöttség miatt
+		if (i % 20 == 0) {
 			adjacencyMtx[x][y] = true;
 			adjacencyMtx[y][x] = true;
 		}
@@ -258,10 +233,6 @@ void onInitialization() {
 		}
 	}
 
-	// TODO ha van idõ még: máshogy éleket behúzni
-
-
-	// TODO késõbb átrakni másik fv-be ha van idõ
 	int n = 0;
 	for (int i = 0; i < GRAPHPOINTS; i++) {
 		for (int j = i + 1; j < GRAPHPOINTS; j++) {
@@ -312,32 +283,21 @@ void onInitialization() {
 		textures[i].create(16, 16, imageBuffer);
 	}
 
-
-	for (int i = 0; i < GRAPHPOINTS * 3 * 2; i += 6) {
-		colorSeeds[i + 0] = rand() % 200;
-		colorSeeds[i + 1] = colorSeeds[i + 0];
-		colorSeeds[i + 2] = colorSeeds[i + 0];
-		colorSeeds[i + 3] = colorSeeds[i + 0];
-		colorSeeds[i + 4] = colorSeeds[i + 0];
-		colorSeeds[i + 5] = colorSeeds[i + 0];
-	}
-
-
-	glBindVertexArray(vao);		// make it active
+	glBindVertexArray(vao);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(vertices),  // # bytes
-		vertices,	      	// address
-		GL_STATIC_DRAW);	// we do not change later
-	glEnableVertexAttribArray(0);  // AttribArray 0
-	glVertexAttribPointer(0,       // vbo -> AttribArray 0
-		2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
-		0, NULL); 		     // stride, offset: tightly packed
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(vertices),
+		vertices,
+		GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0,
+		2, GL_FLOAT, GL_FALSE,
+		0, NULL);
 
 
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);	// binding texture vbo
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(textureCoordinates),  // # bytes
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(textureCoordinates),
 		textureCoordinates,	      	// address
 		GL_STATIC_DRAW);	// we do not change later
 	glEnableVertexAttribArray(1);
@@ -346,18 +306,19 @@ void onInitialization() {
 		0, NULL); 		     // stride, offset: tightly packed
 
 
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(colorSeeds),  // # bytes
-		colorSeeds,	      	// address
-		GL_STATIC_DRAW);	// we do not change later
-	glEnableVertexAttribArray(2);
-	glVertexAttribPointer(2,       // vbo -> AttribArray 2
-		1, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
-		0, NULL); 		     // stride, offset: tightly packed
+
+	//glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);
+	//glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
+	//	sizeof(colorSeeds),  // # bytes
+	//	colorSeeds,	      	// address
+	//	GL_STATIC_DRAW);	// we do not change later
+	//glEnableVertexAttribArray(2);
+	//glVertexAttribPointer(2,       // vbo -> AttribArray 2
+	//	1, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
+	//	0, NULL); 		     // stride, offset: tightly packed
 
 	glBindVertexArray(vaoLines);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[3]);	// binding lines vbo
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);	// binding lines vbo
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
 		sizeof(verticesLines),  // # bytes
 		verticesLines,	      	// address
@@ -383,8 +344,9 @@ void onDisplay() {
 	glClearColor(0, 0, 0, 0);     // background color
 	glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
 
-	graphMoves();		// kulon fv-be vittem a graf mozgatast
-
+	if (mouseUpdate) {
+		graphMoves();		// kulon fv-be vittem a graf mozgatast
+	}
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
 		sizeof(vertices),  // # bytes
@@ -393,7 +355,7 @@ void onDisplay() {
 
 	//TODO valami
 
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[3]);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);
 	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
 		sizeof(verticesLines),  // # bytes
 		verticesLines,	      	// address
@@ -452,6 +414,7 @@ void onMouseMotion(int pX, int pY) {	// pX, pY are the pixel coordinates of the 
 	mouseYPrev = mouseYNext;
 	mouseXNext = cX;
 	mouseYNext = cY;
+	mouseUpdate = true;
 	onDisplay();
 	//glutPostRedisplay();	//idk ez kb ugyanazt csinálja mint az onDisplay
 	printf("Mouse moved to (%3.2f, %3.2f)\n", cX, cY);
@@ -465,7 +428,7 @@ void onMouse(int button, int state, int pX, int pY) { // pX, pY are the pixel co
 
 	char *buttonStat;
 	switch (state) {
-		case GLUT_DOWN: buttonStat = "pressed"; mouseXPrev = cX; mouseYPrev = cY; mouseXNext = cX; mouseYNext = cY; break;				// Mouse state coordinates getting a default value, as to not be "choppy"
+		case GLUT_DOWN: buttonStat = "pressed"; mouseXPrev = cX; mouseYPrev = cY; mouseXNext = cX; mouseYNext = cY; mouseUpdate = true; break;
 		case GLUT_UP:   buttonStat = "released"; break;
 	}
 
@@ -478,43 +441,47 @@ void onMouse(int button, int state, int pX, int pY) { // pX, pY are the pixel co
 
 // Idle event indicating that some time elapsed: do animation here
 void onIdle() {
+	//printf("Onidle called\n");
 
-	//onDisplay();
-	//glutPostRedisplay();
 
 	long time = glutGet(GLUT_ELAPSED_TIME); // elapsed time since the start of the program
-	if (isSpace) {
+	float t = time - lastTime;
+	t /= 1000;
+	lastTime = time;
+	if (true) {
 		//centreOfMass = calcCentreOfMass(centreOfMass);		//kiszamolom a tomegkozeppontot
 		////TODO:	kiszámolni a tömegközéppontot, annak az origoba mutató vektorát és minden csúcsot ennyivel eltolni minden iterációban
 		//vec3 v_centreMass = calcVec3withW(centreOfMass.x, centreOfMass.y);
 		//printf("tomagkozeppont: x:%3.5f, y:%3.5f, w:%3.5f\n", v_centreMass.x, v_centreMass.y, v_centreMass.);
 
 		//exit(0);
-		int j = 0;
+		//int j = 0;
 		// gráf középpontjainak mozgatása
-		for (int i = 0; i < GRAPHPOINTS; i += 2) {		//TODO: mozgatni majd a négyzet csúcsait is
-			vec2 Fi = sumForce(i) - velocity[i] * FRICTION;
-			velocity[i] = velocity[i] + Fi * 0.005f;		// last float is time since last drawing
+		graphForceMoves(t);
 
-			// Fi vektorral odébbtolni az adott koordinátát
-			float x = verticesCoordinates[j];
-			float y = verticesCoordinates[j + 1];
+		//for (int i = 0; i < GRAPHPOINTS; i += 2) {		//TODO: mozgatni majd a négyzet csúcsait is
+		//	vec2 Fi = sumForce(i) - velocity[i] * FRICTION;
+		//	velocity[i] = velocity[i] + Fi * 0.005f;		// last float is time since last drawing
 
-			vec3 thisPoint = calcVec3withW(x, y);
-			float d_PO = vec3Distance(thisPoint, vec3(0.0f, 0.0f, 1.0f));
+		//	// Fi vektorral odébbtolni az adott koordinátát
+		//	float x = verticesCoordinates[j];
+		//	float y = verticesCoordinates[j + 1];
 
-			if (d_PO > 0.5f) {
-				thisPoint = pointFromVDir(thisPoint, dirVecFrom2Points(thisPoint, vec3(0.0f, 0.0f, 1.0f), d_PO), 0.05f);		//t 0 - d_PO között egy szám, minél kisebb lehetõleg
-			}
+		//	vec3 thisPoint = calcVec3withW(x, y);
+		//	float d_PO = vec3Distance(thisPoint, vec3(0.0f, 0.0f, 1.0f));
 
-			vec3 temp = pointFromVDir(calcVec3withW(x, y), velocity[i], 0.0005f);		// más távolság
+		//	if (d_PO > 0.5f) {
+		//		thisPoint = pointFromVDir(thisPoint, dirVecFrom2Points(thisPoint, vec3(0.0f, 0.0f, 1.0f), d_PO), 0.05f);		//t 0 - d_PO között egy szám, minél kisebb lehetõleg
+		//	}
+
+		//	vec3 temp = pointFromVDir(calcVec3withW(x, y), velocity[i], 0.0005f);		// más távolság
 
 
-			//el kell tolni ide nem megadni???
-			verticesCoordinates[j] = temp.x;
-			verticesCoordinates[j + 1] = temp.y;
-			j += 2;
-		}
+		//	//el kell tolni ide nem megadni???
+		//	verticesCoordinates[j] = temp.x;
+		//	verticesCoordinates[j + 1] = temp.y;
+		//	j += 2;
+		//}
 		//onDisplay();
 		//// gráf négyzet csúcsok mozgatása
 		//j = 0;
@@ -549,7 +516,8 @@ void onIdle() {
 		//	j += 2;
 		//	k++;
 		//}
-
+		glutPostRedisplay();
+		//onDisplay();
 	}
 }
 
@@ -647,18 +615,18 @@ vec2 calcCentreOfMass(vec2 in) {
 }
 
 void graphMoves() {
-	if (mouseXNext != mouseXPrev || mouseYNext != mouseYPrev) {		// as to not get zero division		todo: check if on hyperbolic plane
+	if (mouseXNext != mouseXPrev || mouseYNext != mouseYPrev) {
 		if (mouseXNext * mouseXNext + mouseYNext * mouseYNext < 1) {
 			vec3 a = calcHyperbolicCoord(mouseXPrev, mouseYPrev);
 			printf("mouseXPrev: %3.5f, mouseYPrev: %3.5f\n", mouseXPrev, mouseYPrev);
 			printVec3(a);
 			vec3 b = calcHyperbolicCoord(mouseXNext, mouseYNext);
+			
 			printVec3(b);
 			vec3 m1 = getDivider(a, b, 0.25f);
 			vec3 m2 = getDivider(a, b, 0.75f);
 
 			// a graf kozeppontjainak eltolasa
-			int l = 0;
 			for (int i = 0; i < GRAPHPOINTS * 2; i += 2) {
 				vec3 temp = { verticesCoordinates[i + 0], verticesCoordinates[i + 1], calcW(verticesCoordinates[i + 0], verticesCoordinates[i + 1]) };
 				//printVec3(temp);
@@ -667,59 +635,11 @@ void graphMoves() {
 				//printVec3(temp);
 				verticesCoordinates[i + 0] = temp.x;			// X coordinate of said point
 				verticesCoordinates[i + 1] = temp.y;			// Y coordinate of said point
-
-				// the four corners of the square (six points in total becasuse of the 2 triangles) being translated
-				vec3 origo = { 0.0f, 0.0f, 1.0f };
-				vec3 pont = calcVec3withW(verticesCoordinates[i + 0], verticesCoordinates[i + 1]);
-				vec3 m1_2 = getDivider(origo, pont, 0.25f);
-				vec3 m2_2 = getDivider(origo, pont, 0.75f);
-				vec3 egy = calcVec3withW(-SIDELENGTH / 2, -SIDELENGTH / 2);
-				vec3 ketto = calcVec3withW(-SIDELENGTH / 2, +SIDELENGTH / 2);
-				vec3 harom = calcVec3withW(+SIDELENGTH / 2, -SIDELENGTH / 2);
-				vec3 negy = calcVec3withW(+SIDELENGTH / 2, +SIDELENGTH / 2);
-				egy = getMirrorOnPoint(egy, m1_2);
-				egy = getMirrorOnPoint(egy, m2_2);
-				ketto = getMirrorOnPoint(ketto, m1_2);
-				ketto = getMirrorOnPoint(ketto, m2_2);
-				harom = getMirrorOnPoint(harom, m1_2);
-				harom = getMirrorOnPoint(harom, m2_2);
-				negy = getMirrorOnPoint(negy, m1_2);
-				negy = getMirrorOnPoint(negy, m2_2);
-
-				vertices[l + 0] = egy.x;
-				vertices[l + 1] = egy.y;
-
-				vertices[l + 2] = ketto.x;
-				vertices[l + 3] = ketto.y;
-
-				vertices[l + 4] = harom.x;
-				vertices[l + 5] = harom.y;
-
-				vertices[l + 6] = ketto.x;
-				vertices[l + 7] = ketto.y;
-				vertices[l + 8] = harom.x;
-				vertices[l + 9] = harom.y;
-
-				vertices[l + 10] = negy.x;
-				vertices[l + 11] = negy.y;
-				l += 12;
 			}
-
-			int n = 0;
-			for (int i = 0; i < GRAPHPOINTS; i++) {
-				for (int j = i + 1; j < GRAPHPOINTS; j++) {
-					if (adjacencyMtx[i][j]) {
-						verticesLines[n + 0] = verticesCoordinates[i * 2];
-						verticesLines[n + 1] = verticesCoordinates[i * 2 + 1];
-
-						verticesLines[n + 2] = verticesCoordinates[j * 2];
-						verticesLines[n + 3] = verticesCoordinates[j * 2 + 1];
-						n += 4;
-					}
-				}
-			}
+			refreshVertices();
 		}
 	}
+	mouseUpdate = false;
 }
 
 vec2 calcMovingVector(float x, float y, vec3 m1, vec3 m2) {
@@ -735,3 +655,135 @@ bool isVec2Equal(vec2 a, vec2 b) {
 	return (a.x == b.x && a.y == b.y);
 }
 
+bool isVec3Equal(vec3 a, vec3 b) {
+	return (a.x == b.x && a.y == b.y && a.z == b.z);
+}
+
+void graphForceMoves(float dt) {
+	dt *= 3.0f;
+	for (int i = 0; i < GRAPHPOINTS; i++) {
+		float x = verticesCoordinates[2 * i + 0];
+		float y = verticesCoordinates[2 * i + 1];
+		vec3 p = calcVec3withW(x, y);
+		vec3 F = { 0.0f, 0.0f, 0.0f };
+		// dt-t szorozni vmennyivel (ettõl gyorsul/lassul az animáció)
+
+		for (int j = i+1; j < GRAPHPOINTS; j++) {
+		// ha fut él
+			if (adjacencyMtx[i][j]) {
+				//F += v * (fv d távolság és optimális távolság fv-ben változik pl köbfv) * konst
+				F = F + dt;
+			}
+		// ha nem fut él
+			else {
+				F = F - dt;
+		
+				//F += v * (másmilyen fv pl lin fv) * konst
+			}
+		//F += globális erõtér (pont és 0,0,1 távolság+irányvektor) * (vmilyen fv) * távolság az origotol
+		}
+		//vec3 l = points[i] * coshf(dt) + f*dt * sinhf(dt);
+
+		vec3 l = p * coshf(dt) + F * dt * sinhf(dt);
+		//movePoint(i, l);
+		verticesCoordinates[2 * i] = l.x;
+		verticesCoordinates[2 * i + 1] = l.y;
+		refreshVertices();
+		//if (i == 0) {
+		//	printf("FORCE: x:%3.5f y:%3.5f \n", l.x, l.y);
+		//	printf("dt: %3.5f, coshf(dt): %3.5f, sinhf(dt): %3.5f\n", dt, coshf(dt), sinhf(dt));
+		//	printVec3(l);
+		//	printVec3(F);
+		//}
+
+
+		//vec3 temp = p;
+		//for (int j = 0; j < GRAPHPOINTS * 2; j+=2) {
+		//	float xj = verticesCoordinates[j + 0];
+		//	float yj = verticesCoordinates[j + 1];
+		//	vec3 pb = calcVec3withW(xj, yj);
+		//	if (i = j) {
+		//		continue;
+		//	}
+		//	else{
+		//		if (isVec3Equal(p, temp)) {
+		//			vec3 F = forceOn2Points(p, pb);
+		//			temp = F;
+		//			continue;
+		//		}
+		//		else {
+		//			vec3 m1 = getDivider(p, pb, 0.25f);
+		//			vec3 m2 = getDivider(p, pb, 0.75f);
+		//			vec3 F = forceOn2Points(p, pb);
+		//			// eloltas a hiperbolikus síkon m1? m2???
+		//			temp = getMirrorOnPoint(temp, m1);
+		//			temp = getMirrorOnPoint(temp, m2);
+		//		}
+		//	}
+		//}
+		//p = temp;
+		//verticesCoordinates[i + 0] = temp.x;
+		//verticesCoordinates[i + 1] = temp.y;
+	}
+}
+
+vec3 forceOn2Points(vec3 p, vec3 pb) {
+	float d = vec3Distance(p, pb);
+	vec3 v = dirVecFrom2Points(p, pb, d);
+	vec3 temp = pointFromVDir(p, v, 0.2f * d);
+	return temp;
+}
+
+void refreshVertices() {
+	int l = 0;
+	for (int i = 0; i < GRAPHPOINTS * 2; i += 2) {
+		vec3 origo = { 0.0f, 0.0f, 1.0f };
+		vec3 pont = calcVec3withW(verticesCoordinates[i + 0], verticesCoordinates[i + 1]);
+		vec3 m1_2 = getDivider(origo, pont, 0.25f);
+		vec3 m2_2 = getDivider(origo, pont, 0.75f);
+		vec3 egy = calcVec3withW(-SIDELENGTH / 2, -SIDELENGTH / 2);
+		vec3 ketto = calcVec3withW(-SIDELENGTH / 2, +SIDELENGTH / 2);
+		vec3 harom = calcVec3withW(+SIDELENGTH / 2, -SIDELENGTH / 2);
+		vec3 negy = calcVec3withW(+SIDELENGTH / 2, +SIDELENGTH / 2);
+		egy = getMirrorOnPoint(egy, m1_2);
+		egy = getMirrorOnPoint(egy, m2_2);
+		ketto = getMirrorOnPoint(ketto, m1_2);
+		ketto = getMirrorOnPoint(ketto, m2_2);
+		harom = getMirrorOnPoint(harom, m1_2);
+		harom = getMirrorOnPoint(harom, m2_2);
+		negy = getMirrorOnPoint(negy, m1_2);
+		negy = getMirrorOnPoint(negy, m2_2);
+
+		vertices[l + 0] = egy.x;
+		vertices[l + 1] = egy.y;
+
+		vertices[l + 2] = ketto.x;
+		vertices[l + 3] = ketto.y;
+
+		vertices[l + 4] = harom.x;
+		vertices[l + 5] = harom.y;
+
+		vertices[l + 6] = ketto.x;
+		vertices[l + 7] = ketto.y;
+		vertices[l + 8] = harom.x;
+		vertices[l + 9] = harom.y;
+
+		vertices[l + 10] = negy.x;
+		vertices[l + 11] = negy.y;
+		l += 12;
+	}
+
+	int n = 0;
+	for (int i = 0; i < GRAPHPOINTS; i++) {
+		for (int j = i + 1; j < GRAPHPOINTS; j++) {
+			if (adjacencyMtx[i][j]) {
+				verticesLines[n + 0] = verticesCoordinates[i * 2];
+				verticesLines[n + 1] = verticesCoordinates[i * 2 + 1];
+
+				verticesLines[n + 2] = verticesCoordinates[j * 2];
+				verticesLines[n + 3] = verticesCoordinates[j * 2 + 1];
+				n += 4;
+			}
+		}
+	}
+}
